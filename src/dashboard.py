@@ -82,6 +82,27 @@ def check_DNS(dns):
 def check_remote_endpoint(address):
     return (regex_match("((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4}", address) or regex_match("(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z]{0,61}[a-z]",address))
 
+def get_assigned_ips():
+    assigned_ips = []
+    with open('db/wg0.json') as f:
+        peer_data = json.load(f)
+    for i in peer_data['_default']:
+        assigned_ip_str = peer_data['_default'][i]['allowed_ip']
+        if ',' in assigned_ip_str:
+            assigned_ip_str = assigned_ip_str.split(',')[0]
+        ip_prefix = '.'.join(assigned_ip_str.split('.')[:-1])  # Could be taken from dabshoard.ini or wg0.conf
+        assigned_ip = assigned_ip_str.split('.')[-1].split('/')[0]
+        assigned_ips.append(int(assigned_ip))
+    return assigned_ips, ip_prefix
+
+def get_min_ip():
+    assigned_ips, ip_prefix = get_assigned_ips()
+    assigned_ips = sorted(assigned_ips)
+    if len(assigned_ips) == max(assigned_ips) - 1:
+        return ip_prefix + '.' + str(max(assigned_ips) + 1)
+    for i in range(len(assigned_ips)):
+        if assigned_ips[i + 1] - assigned_ips[i] != 1:
+            return ip_prefix + '.' + str(assigned_ips[i] + 1)
 
 """
 Dashboard Configuration Related
@@ -758,7 +779,8 @@ def conf(config_name):
                            endpoint_allowed_ip=config.get("Peers", "peer_endpoint_allowed_ip"),
                            title=config_name,
                            mtu=config.get("Peers","peer_MTU"),
-                           keep_alive=config.get("Peers","peer_keep_alive"))
+                           keep_alive=config.get("Peers","peer_keep_alive"),
+                           allowed_ip=get_min_ip())
 
 # Get configuration details
 @app.route('/get_config/<config_name>', methods=['GET'])
