@@ -95,14 +95,16 @@ def get_assigned_ips():
         assigned_ips.append(int(assigned_ip))
     return assigned_ips, ip_prefix
 
+
 def get_min_ip():
     assigned_ips, ip_prefix = get_assigned_ips()
     assigned_ips = sorted(assigned_ips)
-    if len(assigned_ips) == max(assigned_ips) - 1:
-        return ip_prefix + '.' + str(max(assigned_ips) + 1)
-    for i in range(len(assigned_ips)):
-        if assigned_ips[i + 1] - assigned_ips[i] != 1:
-            return ip_prefix + '.' + str(assigned_ips[i] + 1)
+    print(assigned_ips)
+    all_ips = range(255)  # all possible ips
+    remaining_ips = [ip for ip in all_ips if ip not in assigned_ips]
+    min_ip = min(remaining_ips)
+    return ip_prefix + '.' + str(min_ip)
+
 
 """
 Dashboard Configuration Related
@@ -357,12 +359,12 @@ def get_peers(config_name, search, sort_t):
     return result
 
 
-
-
 # Get configuration public key
 def get_conf_pub_key(config_name):
+    print(config_name)
     conf = configparser.ConfigParser(strict=False)
     conf.read(wg_conf_path + "/" + config_name + ".conf")
+    #print(open(wg_conf_path + "/" + config_name + ".conf", 'r').read())
     pri = conf.get("Interface", "PrivateKey")
     pub = subprocess.check_output("echo '" + pri + "' | wg pubkey", shell=True)
     conf.clear()
@@ -434,8 +436,8 @@ def gen_private_key():
     data = {"private_key": private_key, "public_key": public_key}
     private.close()
     public.close()
-    os.remove('private_key.txt')
-    os.remove('public_key.txt')
+    #os.remove('private_key.txt')
+    #os.remove('public_key.txt')
     return data
 
 # Generate public key
@@ -451,7 +453,8 @@ def gen_public_key(private_key):
         os.remove('public_key.txt')
         return {"status": 'success', "msg": "", "data": public_key}
     except subprocess.CalledProcessError as exc:
-        os.remove('private_key.txt')
+        print(str(exc))
+        #os.remove('private_key.txt')
         return {"status": 'failed', "msg": "Key is not the correct length or format", "data": ""}
 
 # Check if private key and public key match
@@ -834,6 +837,19 @@ def switch(config_name):
             return redirect('/')
 
     return redirect(request.referrer)
+# Add peer helper
+@app.route('/get_json/<config_name>', methods=['GET'])
+def get_json(config_name):
+    json_dict = {}
+    config = configparser.ConfigParser(strict=False)
+    config.read(dashboard_conf)
+    json_dict['allowed_ips'] = get_min_ip()
+    json_dict['DNS'] = config.get("Peers", "peer_global_DNS")
+    json_dict['endpoint_allowed_ip'] = config.get("Peers", "peer_endpoint_allowed_ip")
+    json_dict['MTU'] = config.get("Peers", "peer_mtu")
+    json_dict['keep_alive'] = config.get("Peers", "peer_keep_alive")
+    return json_dict
+
 
 # Add peer
 @app.route('/add_peer/<config_name>', methods=['POST'])
@@ -882,6 +898,29 @@ def add_peer(config_name):
     except subprocess.CalledProcessError as exc:
         db.close()
         return exc.output.strip()
+
+def search_for_name(config_name, name):
+    get_all_peers_data(config_name)
+    db = TinyDB('db/' + config_name + '.json')
+    peer = Query()
+    if len(name) == 0:
+        result = db.all()
+    else:
+        result = db.search(peer.name.matches('(.*)(' + re.escape(name) + ')(.*)'))
+    db.close()
+    print('Result has length: ', len(result))
+    return result
+
+@app.route('/get_id/<config_name>', methods=['POST'])
+def get_id_from_name(config_name):
+    if get_conf_status(config_name) == "stopped":
+        return "Your need to turn on " + config_name + " first."
+    data = request.get_json()
+    name = data['name']
+    result = search_for_name(config_name, name)
+    if len(result) == 0:
+        return '0'
+    return jsonify(result)
 
 # Remove peer
 @app.route('/remove_peer/<config_name>', methods=['POST'])
